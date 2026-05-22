@@ -1,14 +1,15 @@
-# aedifion AI-OS — All-in-one installer (Windows PowerShell 7+)
+# aedifion AI-OS — All-in-one installer (Windows PowerShell 5.1+, runs in pwsh too)
 #
 # Canonical location: aedifion-AI/aedifion-AI-OS/installer/install.ps1 (private)
 # Public mirror:      aedifion-AI/ai-os-installer (sync target — kept in lockstep)
+# After editing this file, follow installer/MIRROR-SYNC.md to push to the mirror.
 #
 # Distribution paths:
 #   1. Fresh laptop (recommended): one-liner against the public mirror —
 #        iex "& { $(irm https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.ps1) }"
 #   2. Browser download from the Hauptrepo (org members only) —
 #        https://github.com/aedifion-AI/aedifion-AI-OS/raw/main/installer/install.ps1
-#        then locally:  pwsh ~/Downloads/install.ps1
+#        then locally:  powershell -ExecutionPolicy Bypass -File ~/Downloads/install.ps1
 #
 # Access control: the Hauptrepo is private. Step 7 (`gh repo clone`) is the
 # auth gate — non-members hit `permission denied` and the script stops.
@@ -91,52 +92,107 @@ if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     AbortMsg "winget not available. Update to Windows 10 1809+ / 11, then install App Installer from Microsoft Store."
 }
 
-# Brew_install equivalent for winget
-function Winget-Install {
-    param([string]$pkg)
-    $installed = winget list --id $pkg --exact 2>$null | Out-String
-    if ($installed -match $pkg) {
-        Ok "$pkg already installed"
-    }
-    else {
-        Info "installing $pkg ..."
-        winget install --id $pkg --exact --silent --accept-source-agreements --accept-package-agreements
-    }
+# Warm up winget: on a fresh Windows box the first winget call prompts
+# interactively to accept the msstore/winget source terms. We pre-accept
+# them once here, otherwise the first `winget list` inside Winget-Install
+# stalls invisibly (stderr was redirected, stdout was buffered through
+# Out-String, so the user saw no prompt — looked like a hang at "1/8 git").
+Write-Host ""
+Info "warming up winget (accepting source agreements) ..."
+winget source update --accept-source-agreements 2>&1 | Out-Null
+
+function Refresh-Path {
+    # winget installs put new tools into the Machine/User PATH, but the running
+    # PowerShell session still has the old PATH. Re-read both scopes after each
+    # install so subsequent steps see freshly-installed CLIs (gh, code, ...).
+    $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:PATH = "$machine;$userPath"
 }
 
-# ─── 1/7 git ──────────────────────────────────────────────
+# Brew_install equivalent for winget.
+#
+# Returns nothing; aborts the whole installer when a critical package install
+# fails (a half-installed toolchain just produces confusing errors three
+# steps later). winget exit codes:
+#   0                 → success (installed or already present)
+#   -1978335212       → "no installed package matching query" (we use it to
+#                       distinguish 'not installed' from a real error on `list`)
+#   anything else     → real error; abort.
+function Winget-Install {
+    param([string]$pkg)
+    # Probe with `list`. Exit code 0 = installed; non-zero = not installed
+    # (or winget failure — either way we try to install). We discard the
+    # output, but keep stderr visible in case winget itself fails loudly.
+    winget list --id $pkg --exact --accept-source-agreements 2>&1 | Out-Null
+    $listExit = $LASTEXITCODE
+    if ($listExit -eq 0) {
+        Ok "$pkg already installed"
+        return
+    }
+    Info "installing $pkg ..."
+    # No --silent — users need to see download progress, otherwise the
+    # script looks frozen during large downloads (VS Code is ~100 MB).
+    winget install --id $pkg --exact --accept-source-agreements --accept-package-agreements
+    $installExit = $LASTEXITCODE
+    if ($installExit -ne 0) {
+        AbortMsg @"
+winget install $pkg failed with exit code $installExit.
+
+Common causes:
+  • UAC "No" was clicked — re-run and allow the elevation prompt.
+  • No internet / corporate proxy blocking the MS Store CDN.
+  • Package id changed upstream — install manually:
+       winget search $pkg
+       winget install --id <id>
+
+The installer has stopped. Nothing was committed. Re-run when ready.
+"@
+    }
+    Refresh-Path
+}
+
+# ─── 1/8 git ──────────────────────────────────────────────
 Step 1 "git"
 Winget-Install "Git.Git"
 
-# ─── 2/7 python3 ──────────────────────────────────────────
+# ─── 2/8 python3 ──────────────────────────────────────────
 Step 2 "python3"
 Winget-Install "Python.Python.3.12"
 
-# ─── 3/7 gh (GitHub CLI) ──────────────────────────────────
+# ─── 3/8 gh (GitHub CLI) ──────────────────────────────────
 Step 3 "GitHub CLI (gh)"
 Winget-Install "GitHub.cli"
 
-# ─── 4/7 VS Code ──────────────────────────────────────────
+# ─── 4/8 VS Code ──────────────────────────────────────────
 Step 4 "VS Code"
 Winget-Install "Microsoft.VisualStudioCode"
 
-# Refresh PATH for the rest of this session
-$env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + `
-            [System.Environment]::GetEnvironmentVariable("Path", "User")
-
-# ─── 5/7 Claude Code extension ────────────────────────────
+# ─── 5/8 Claude Code extension ────────────────────────────
 Step 5 "Claude Code extension"
-$exts = & code --list-extensions
-if ($exts -match "anthropic.claude-code") {
-    Ok "already installed"
-}
-else {
-    Info "installing Claude Code extension ..."
-    & code --install-extension anthropic.claude-code
+if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+    Warn "'code' CLI not on PATH yet — VS Code may need a system restart to register."
+    Warn "Skipping extension install. After restarting, run inside VS Code:"
+    Warn "    code --install-extension anthropic.claude-code"
+} else {
+    $exts = & code --list-extensions 2>&1
+    if ($exts -match "anthropic.claude-code") {
+        Ok "already installed"
+    }
+    else {
+        Info "installing Claude Code extension ..."
+        & code --install-extension anthropic.claude-code
+        if ($LASTEXITCODE -ne 0) {
+            Warn "Extension install returned $LASTEXITCODE — install it from inside VS Code if needed."
+        }
+    }
 }
 
-# ─── 6/7 GitHub auth ──────────────────────────────────────
+# ─── 6/8 GitHub auth ──────────────────────────────────────
 Step 6 "GitHub login"
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+    AbortMsg "'gh' CLI not on PATH. Close this PowerShell window and re-run the installer (Windows needs a fresh shell after gh install)."
+}
 $ghStatus = & gh auth status 2>&1
 if ($LASTEXITCODE -eq 0) {
     Ok "already logged in to GitHub"
@@ -147,17 +203,23 @@ else {
     Write-Host "  Use the GitHub account that has access to the aedifion-AI organisation."
     Write-Host ""
     & gh auth login --hostname github.com --git-protocol https --web
+    if ($LASTEXITCODE -ne 0) {
+        AbortMsg "GitHub login did not complete. Re-run the installer once logged in via 'gh auth login'."
+    }
 }
 
-# ─── 7/7 Clone + open VS Code ─────────────────────────────
+# ─── 7/8 Clone + open VS Code ─────────────────────────────
 Step 7 "Workspace"
 
 if ([string]::IsNullOrWhiteSpace($Workspace)) {
     $Workspace = $WorkspaceDefault
 }
 
-if ($Workspace -notmatch '^[A-Za-z0-9:\\/_.~-]+$') {
-    AbortMsg "Path contains spaces or special characters: $Workspace"
+# Allow letters (incl. umlauts: \p{L}), digits, drive-letter colon, slashes,
+# spaces, dots, tildes, underscores, dashes. Block shell-meta and quoting
+# chars that would break git/gh and downstream scripts.
+if ($Workspace -notmatch '^[\p{L}\p{N}:\\/ _.~-]+$') {
+    AbortMsg "Path contains characters we can't safely pass to git/gh: $Workspace"
 }
 
 if (Test-Path $Workspace) {
@@ -167,13 +229,33 @@ if (Test-Path $Workspace) {
 else {
     Info "cloning $PrivateRepo into $Workspace ..."
     & gh repo clone $PrivateRepo $Workspace
-    if ($LASTEXITCODE -ne 0) { AbortMsg "Clone failed." }
+    if ($LASTEXITCODE -ne 0) {
+        AbortMsg @"
+Clone of $PrivateRepo failed.
+
+Most common cause: you're logged in to GitHub, but with an account that
+isn't a member of the 'aedifion-AI' organisation. The Hauptrepo is private,
+so non-members get 'permission denied' or 'Could not resolve to a Repository'.
+
+To switch accounts:
+    gh auth logout
+    gh auth login --hostname github.com --git-protocol https --web
+
+Use the GitHub account that aedifion-IT linked to the aedifion-AI org. Then
+re-run this installer.
+"@
+    }
 }
 
-Info "opening VS Code at $Workspace ..."
-& code $Workspace
-if ($LASTEXITCODE -ne 0) {
-    Warn "'code' command failed. Open VS Code → File → Open Folder → $Workspace"
+if (Get-Command code -ErrorAction SilentlyContinue) {
+    Info "opening VS Code at $Workspace ..."
+    & code $Workspace
+    if ($LASTEXITCODE -ne 0) {
+        Warn "'code' command failed. Open VS Code → File → Open Folder → $Workspace"
+    }
+} else {
+    Warn "'code' CLI not on PATH yet — VS Code may need a system restart to register."
+    Warn "Open VS Code manually → File → Open Folder → $Workspace"
 }
 
 # ─── 8/8 Cockpit auto-migration ──────────────────────────
@@ -214,7 +296,11 @@ if (Test-FoundationHasPersonalContent $Workspace) {
     if (Ask "Run migration now?") {
         $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
         if (Test-Path $MigrateScript) {
-            & pwsh -NoProfile -File $MigrateScript -Yes -Cockpit $Cockpit -Foundation $Workspace
+            # Use the SAME PowerShell engine that's running this script. Avoids
+            # the "pwsh not found" trap when the user is on Windows PowerShell
+            # 5.1 (default Windows) and we don't ship PS 7 as a prerequisite.
+            $psExe = (Get-Process -Id $PID).Path
+            & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $Cockpit -Foundation $Workspace
             if ($LASTEXITCODE -ne 0) {
                 Warn "Migration script returned non-zero — review output above. Cockpit and backup are untouched."
             }
@@ -222,7 +308,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
             Warn "Migration script not found: $MigrateScript"
         }
     } else {
-        Info "Skipped. Run later with: pwsh $Workspace\installer\migrate-cockpit.ps1"
+        Info "Skipped. Run later with: powershell -File $Workspace\installer\migrate-cockpit.ps1"
     }
 } else {
     Info "No Cockpit-style workspace at $Cockpit — nothing to migrate."

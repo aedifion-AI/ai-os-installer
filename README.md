@@ -10,11 +10,13 @@ Public bootstrap installer for the **aedifion AI Operations System**. This repos
 bash <(curl -fsSL https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.sh)
 ```
 
-**Windows — one line in PowerShell 7+:**
+**Windows — one line in PowerShell** (works in the default Windows PowerShell 5.1 and in PowerShell 7+):
 
 ```powershell
 iex "& { $(irm https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.ps1) }"
 ```
+
+> Paste as a **single line**. If you copied it from a message that ended with a comma, drop the trailing `,` — PowerShell treats `,` as the array operator and will wait for another expression.
 
 The installer is idempotent — re-running is safe. Pass `--yes` (or `-Yes` on Windows) to auto-accept all prompts.
 
@@ -33,7 +35,7 @@ The installer is idempotent — re-running is safe. Pass `--yes` (or `-Yes` on W
 
 - Member of the `aedifion-AI` GitHub organisation (you need read access to the private `aedifion-AI-OS` repo). Without that access, step 7 will fail with `permission denied` and the install stops there.
 - macOS x64 / arm64 — uses `install.sh`.
-- Windows 10/11 with PowerShell 7+ — uses `install.ps1`. If `pwsh` is missing, install via `winget install Microsoft.PowerShell`.
+- Windows 10/11 with PowerShell 5.1+ — uses `install.ps1`. The default `powershell.exe` is fine; PowerShell 7 (`pwsh`) is not required.
 - Linux — currently prints manual instructions.
 
 ## After install
