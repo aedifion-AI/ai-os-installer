@@ -53,7 +53,11 @@ function Ask([string]$msg) {
 }
 
 # ─── 0. OS check ─────────────────────────────────────────
-if (-not $IsWindows) {
+# $IsWindows is an automatic variable in PowerShell 7+ (Core). In Windows
+# PowerShell 5.1 it does not exist (= $null), so we only treat the script as
+# running on a non-Windows OS when the variable is explicitly defined and false.
+$isWindowsCheck = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
+if ($null -ne $isWindowsCheck -and -not $isWindowsCheck.Value) {
     AbortMsg "Use install.sh on macOS/Linux."
 }
 
