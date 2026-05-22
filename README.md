@@ -2,13 +2,21 @@
 
 Public bootstrap installer for the **aedifion AI Operations System**. This repository hosts only the entry-point installer script — the actual AI-OS lives in the private repo `aedifion-AI/aedifion-AI-OS`. Access is gated at runtime by GitHub: if your account is not a member of the `aedifion-AI` organisation, the script stops at the clone step.
 
-## Quick start (macOS, ~10 min)
+## Quick start
+
+**macOS — one line in Terminal:**
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.sh)
 ```
 
-The installer is idempotent — re-running is safe. Pass `--yes` to auto-accept all prompts.
+**Windows — one line in PowerShell 7+:**
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.ps1) }"
+```
+
+The installer is idempotent — re-running is safe. Pass `--yes` (or `-Yes` on Windows) to auto-accept all prompts.
 
 ## What it does
 
@@ -24,7 +32,9 @@ The installer is idempotent — re-running is safe. Pass `--yes` to auto-accept 
 ## Requirements
 
 - Member of the `aedifion-AI` GitHub organisation (you need read access to the private `aedifion-AI-OS` repo). Without that access, step 7 will fail with `permission denied` and the install stops there.
-- macOS x64 / arm64. Linux currently prints manual instructions; Windows uses `install.ps1` from inside the Hauptrepo after the first clone.
+- macOS x64 / arm64 — uses `install.sh`.
+- Windows 10/11 with PowerShell 7+ — uses `install.ps1`. If `pwsh` is missing, install via `winget install Microsoft.PowerShell`.
+- Linux — currently prints manual instructions.
 
 ## After install
 
@@ -38,4 +48,4 @@ This finishes the workspace setup (profile, plugin install, integration tokens, 
 
 ## Source
 
-`install.sh` mirrors `aedifion-AI/aedifion-AI-OS/installer/install.sh`. The canonical source is the Hauptrepo; this public copy is what `curl | bash` pulls. Updates to the Hauptrepo's installer must be synced here.
+`install.sh` and `install.ps1` mirror `aedifion-AI/aedifion-AI-OS/installer/`. The canonical source is the Hauptrepo; this public copy is what `curl | bash` and `iex | irm` pull. Updates to the Hauptrepo's installers must be synced here.
