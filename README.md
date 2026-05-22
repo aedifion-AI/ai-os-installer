@@ -1,6 +1,6 @@
 # aedifion AI-OS Installer
 
-Public bootstrap installer for the **aedifion AI Operations System**. This repository hosts only the entry-point installer script — the actual AI-OS is in the private repo `aedifion-AI/aedifion-AI-OS`.
+Public bootstrap installer for the **aedifion AI Operations System**. This repository hosts only the entry-point installer script — the actual AI-OS lives in the private repo `aedifion-AI/aedifion-AI-OS`. Access is gated at runtime by GitHub: if your account is not a member of the `aedifion-AI` organisation, the script stops at the clone step.
 
 ## Quick start (macOS, ~10 min)
 
@@ -19,11 +19,12 @@ The installer is idempotent — re-running is safe. Pass `--yes` to auto-accept 
 5. Installs the Claude Code extension
 6. Logs you into GitHub via `gh auth login` (browser opens)
 7. Clones `aedifion-AI/aedifion-AI-OS` to `~/aedifion-ai-os/` (or `$WORKSPACE_PATH`) and opens VS Code
+8. If a Cockpit-style workspace exists at `$HOME/AI-OS` (or `$COCKPIT_PATH`), backs it up to `~/cockpit-backup-YYYY-MM-DD-HHMMSS.tar.gz` and migrates personal skills, agents, projects, memory, `.env`, MCP, and settings into the new Foundation workspace. Idempotent: skipped if no Cockpit is found or if the Foundation already has personal content.
 
 ## Requirements
 
-- Member of the `aedifion-AI` GitHub organisation (you need read access to the private `aedifion-AI-OS` repo).
-- macOS x64 / arm64. Linux currently prints manual instructions; Windows installer is on the roadmap.
+- Member of the `aedifion-AI` GitHub organisation (you need read access to the private `aedifion-AI-OS` repo). Without that access, step 7 will fail with `permission denied` and the install stops there.
+- macOS x64 / arm64. Linux currently prints manual instructions; Windows uses `install.ps1` from inside the Hauptrepo after the first clone.
 
 ## After install
 
@@ -37,4 +38,4 @@ This finishes the workspace setup (profile, plugin install, integration tokens, 
 
 ## Source
 
-`install.sh` is mirrored from the private repo at `aedifion-AI/aedifion-AI-OS/installer/install.sh`. The canonical source is the private repo; this public copy is what `curl | bash` pulls.
+`install.sh` mirrors `aedifion-AI/aedifion-AI-OS/installer/install.sh`. The canonical source is the Hauptrepo; this public copy is what `curl | bash` pulls. Updates to the Hauptrepo's installer must be synced here.

@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # aedifion AI-OS — All-in-one installer (macOS / Linux)
 #
-# Hosted publicly at: https://github.com/aedifion-AI/ai-os-installer
-# Mirror in private:  aedifion-AI/aedifion-AI-OS/installer/install.sh
+# Canonical location: aedifion-AI/aedifion-AI-OS/installer/install.sh (private)
+# Public mirror:      aedifion-AI/ai-os-installer (sync target — kept in lockstep)
 #
-# Run on a fresh laptop:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.sh)
+# Distribution paths:
+#   1. Fresh laptop (recommended): one-liner against the public mirror —
+#        bash <(curl -fsSL https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.sh)
+#   2. Browser download from the Hauptrepo (org members only) —
+#        https://github.com/aedifion-AI/aedifion-AI-OS/raw/main/installer/install.sh
+#        then locally:  bash ~/Downloads/install.sh
+#
+# Access control: the Hauptrepo is private. Step 7 (`gh repo clone`) is the
+# auth gate — non-members hit `permission denied` and the script stops.
 #
 # This installer:
 #   1. Installs Xcode Command Line Tools (macOS only)
@@ -15,8 +22,14 @@
 #   5. Installs the Claude Code extension
 #   6. Logs you into GitHub (browser opens)
 #   7. Clones the private aedifion-AI-OS repo and opens VS Code
+#   8. If a Cockpit-style workspace exists at $HOME/AI-OS (or $COCKPIT_PATH),
+#      backs it up and migrates personal skills, agents, projects, memory,
+#      .env, MCP, settings into the new Foundation workspace.
 #
 # Idempotent: re-running is safe. Anything already installed is skipped.
+# Step 8 is also idempotent: if the Foundation already has personal content
+# (.claude/skills/*-priv/ or personal-*/) the migration is skipped.
+#
 # Pass --yes to auto-accept all prompts.
 
 set -euo pipefail
@@ -24,6 +37,8 @@ set -euo pipefail
 WORKSPACE_DEFAULT="${HOME}/aedifion-ai-os"
 WORKSPACE="${WORKSPACE_PATH:-}"
 PRIVATE_REPO="aedifion-AI/aedifion-AI-OS"
+COCKPIT_DEFAULT="${HOME}/AI-OS"
+COCKPIT="${COCKPIT_PATH:-$COCKPIT_DEFAULT}"
 
 YES=0
 [ "${1:-}" = "--yes" ] && YES=1
@@ -60,8 +75,15 @@ fi
 
 cat <<'EOF'
 
+ █████╗ ███████╗██████╗ ██╗███████╗██╗ ██████╗ ███╗   ██╗     █████╗ ██╗       ██████╗ ███████╗
+██╔══██╗██╔════╝██╔══██╗██║██╔════╝██║██╔═══██╗████╗  ██║    ██╔══██╗██║      ██╔═══██╗██╔════╝
+███████║█████╗  ██║  ██║██║█████╗  ██║██║   ██║██╔██╗ ██║    ███████║██║█████╗██║   ██║███████╗
+██╔══██║██╔══╝  ██║  ██║██║██╔══╝  ██║██║   ██║██║╚██╗██║    ██╔══██║██║╚════╝██║   ██║╚════██║
+██║  ██║███████╗██████╔╝██║██║     ██║╚██████╔╝██║ ╚████║    ██║  ██║██║      ╚██████╔╝███████║
+╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝    ╚═╝  ╚═╝╚═╝       ╚═════╝ ╚══════╝
+
 ═══════════════════════════════════════════════════════════
-   aedifion AI-OS — Installer
+   Installer
 ═══════════════════════════════════════════════════════════
 
 This will set up the aedifion AI Operations System on your Mac.
@@ -75,6 +97,7 @@ Steps:
   5. Claude Code extension
   6. GitHub login (browser opens)
   7. Clone the AI-OS repo and open VS Code
+  8. Migrate from Cockpit (only if a Cockpit-style workspace is found)
 
 🔐 You will be asked for your Mac login password during Homebrew install.
    macOS does NOT show characters or asterisks while you type — that is normal.
@@ -88,7 +111,7 @@ if [ "$YES" != "1" ]; then
 fi
 
 # ─── 1. Xcode CLT ────────────────────────────────────────
-step "1/7  Xcode Command Line Tools"
+step "1/8  Xcode Command Line Tools"
 if xcode-select -p >/dev/null 2>&1; then
   ok "already installed"
 else
@@ -100,7 +123,7 @@ else
 fi
 
 # ─── 2. Homebrew ─────────────────────────────────────────
-step "2/7  Homebrew"
+step "2/8  Homebrew"
 if command -v brew >/dev/null 2>&1; then
   ok "already installed"
 else
@@ -123,7 +146,7 @@ elif [ -x /usr/local/bin/brew ]; then eval "$(/usr/local/bin/brew shellenv)"
 fi
 
 # ─── 3. CLI tools ─────────────────────────────────────────
-step "3/7  CLI tools (git, python3, gh)"
+step "3/8  CLI tools (git, python3, gh)"
 brew_install() {
   local pkg="$1"
   if brew list "$pkg" >/dev/null 2>&1; then
@@ -138,7 +161,7 @@ brew_install python@3.12
 brew_install gh
 
 # ─── 4. VS Code ──────────────────────────────────────────
-step "4/7  VS Code"
+step "4/8  VS Code"
 if command -v code >/dev/null 2>&1; then
   ok "'code' CLI already in PATH"
 elif [ -d "/Applications/Visual Studio Code.app" ]; then
@@ -178,7 +201,7 @@ EOF
 fi
 
 # ─── 5. Claude Code extension ────────────────────────────
-step "5/7  Claude Code extension"
+step "5/8  Claude Code extension"
 if code --list-extensions 2>/dev/null | grep -q "anthropic.claude-code"; then
   ok "already installed"
 else
@@ -187,7 +210,7 @@ else
 fi
 
 # ─── 6. GitHub auth ──────────────────────────────────────
-step "6/7  GitHub login"
+step "6/8  GitHub login"
 if gh auth status >/dev/null 2>&1; then
   ok "already logged in to GitHub"
 else
@@ -202,7 +225,7 @@ EOF
 fi
 
 # ─── 7. Clone + open VS Code ─────────────────────────────
-step "7/7  Workspace"
+step "7/8  Workspace"
 
 if [ -z "$WORKSPACE" ]; then
   WORKSPACE="$WORKSPACE_DEFAULT"
@@ -223,6 +246,53 @@ fi
 info "opening VS Code at $WORKSPACE ..."
 code "$WORKSPACE" 2>/dev/null \
   || warn "'code' command failed. Open VS Code → File → Open Folder → $WORKSPACE"
+
+# ─── 8. Cockpit auto-migration ───────────────────────────
+step "8/8  Cockpit auto-migration"
+
+# Idempotency: if Foundation already has any personal skills/agents migrated,
+# skip — don't re-run migration over existing personal content.
+foundation_has_personal_content() {
+  local p="$1"
+  shopt -s nullglob 2>/dev/null || true
+  local matches=( "$p"/.claude/skills/*-priv "$p"/.claude/skills/personal-* \
+                  "$p"/.claude/agents/*-priv.md "$p"/.claude/agents/personal-*.md )
+  [ "${#matches[@]}" -gt 0 ]
+}
+
+# Cockpit detection: directory exists AND at least 2 of 4 Cockpit-style markers.
+is_cockpit_workspace() {
+  local p="$1"
+  [ -d "$p" ] || return 1
+  local signals=0
+  [ -f "$p/CLAUDE.md" ]   && signals=$((signals+1))
+  [ -d "$p/01-memory" ]   && signals=$((signals+1))
+  [ -d "$p/02-projects" ] && signals=$((signals+1))
+  [ -d "$p/03-skills" ]   && signals=$((signals+1))
+  [ "$signals" -ge 2 ]
+}
+
+if foundation_has_personal_content "$WORKSPACE"; then
+  ok "Foundation already has personal content — skipping migration (idempotent)."
+elif [ "$COCKPIT" = "$WORKSPACE" ]; then
+  info "Cockpit path equals Foundation path — skipping."
+elif is_cockpit_workspace "$COCKPIT"; then
+  info "Cockpit-style workspace detected at $COCKPIT"
+  info "Migration will: 1) back up Cockpit  2) copy skills/agents/projects/memory/.env/MCP/settings"
+  if ask "Run migration now?"; then
+    MIGRATE_SCRIPT="$WORKSPACE/installer/migrate-cockpit.sh"
+    if [ -x "$MIGRATE_SCRIPT" ]; then
+      bash "$MIGRATE_SCRIPT" --yes --cockpit "$COCKPIT" --foundation "$WORKSPACE" \
+        || warn "Migration script returned non-zero — review output above. Cockpit and backup are untouched."
+    else
+      warn "Migration script not found or not executable: $MIGRATE_SCRIPT"
+    fi
+  else
+    info "Skipped. Run later with: bash $WORKSPACE/installer/migrate-cockpit.sh"
+  fi
+else
+  info "No Cockpit-style workspace at $COCKPIT — nothing to migrate."
+fi
 
 cat <<EOF
 
