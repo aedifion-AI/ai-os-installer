@@ -317,8 +317,8 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
     Warn "Open VS Code manually → File → Open Folder → $Workspace"
 }
 
-# ─── 8/8 Cockpit auto-migration ──────────────────────────
-Step 8 "Cockpit auto-migration"
+# ─── 8/8 Migration from any existing CC workspace ────────
+Step 8 "Migration from any existing Claude Code workspace"
 
 function Test-FoundationHasPersonalContent {
     param([string]$Path)
@@ -334,7 +334,10 @@ function Test-FoundationHasPersonalContent {
     return $false
 }
 
-function Test-IsCockpitWorkspace {
+# A workspace is migratable if it has any of:
+#   - Cockpit layout: 2+ of {CLAUDE.md, 01-memory/, 02-projects/, 03-skills/}
+#   - Generic CC: .claude/skills or .claude/agents with non-empty contents
+function Test-HasMigratableContent {
     param([string]$Path)
     if (-not (Test-Path $Path -PathType Container)) { return $false }
     $signals = 0
@@ -342,35 +345,98 @@ function Test-IsCockpitWorkspace {
     if (Test-Path (Join-Path $Path "01-memory"))   { $signals++ }
     if (Test-Path (Join-Path $Path "02-projects")) { $signals++ }
     if (Test-Path (Join-Path $Path "03-skills"))   { $signals++ }
-    return ($signals -ge 2)
+    if ($signals -ge 2) { return $true }
+    $skillsDir = Join-Path $Path ".claude\skills"
+    $agentsDir = Join-Path $Path ".claude\agents"
+    if ((Test-Path $skillsDir) -and (Get-ChildItem $skillsDir -ErrorAction SilentlyContinue)) {
+        return $true
+    }
+    if ((Test-Path $agentsDir) -and (Get-ChildItem $agentsDir -ErrorAction SilentlyContinue)) {
+        return $true
+    }
+    return $false
+}
+
+# Discover an existing CC-workspace in standard locations. Returns the first
+# matching path, or $null. Covers:
+#   - legacy aedifion-Cockpit at ~/AI-OS
+#   - Documents/Dokumente, Desktop/Schreibtisch, Downloads (DE + EN locale)
+#   - all of the above mirrored under OneDrive (env vars + "OneDrive*" patterns)
+function Find-ExistingWorkspace {
+    param([string]$Foundation, [string]$ExplicitCockpit)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($ExplicitCockpit) { $candidates.Add($ExplicitCockpit) | Out-Null }
+    $candidates.Add((Join-Path $HOME "AI-OS")) | Out-Null
+    $folders = @("Documents", "Dokumente", "Desktop", "Schreibtisch", "Downloads")
+    foreach ($f in $folders) {
+        $candidates.Add((Join-Path $HOME "$f\Claude Code")) | Out-Null
+    }
+    # OneDrive via env vars (per-machine + commercial + consumer)
+    foreach ($oneDriveBase in @($env:OneDrive, $env:OneDriveCommercial, $env:OneDriveConsumer)) {
+        if ($oneDriveBase -and (Test-Path $oneDriveBase)) {
+            foreach ($f in $folders) {
+                $candidates.Add((Join-Path $oneDriveBase "$f\Claude Code")) | Out-Null
+            }
+        }
+    }
+    # OneDrive folders directly under $HOME (e.g. "OneDrive - aedifion GmbH")
+    Get-ChildItem -Path $HOME -Directory -Filter "OneDrive*" -ErrorAction SilentlyContinue | ForEach-Object {
+        foreach ($f in $folders) {
+            $candidates.Add((Join-Path $_.FullName "$f\Claude Code")) | Out-Null
+        }
+    }
+    foreach ($path in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        if ($path -eq $Foundation) { continue }
+        if (Test-HasMigratableContent $path) {
+            return $path
+        }
+    }
+    return $null
 }
 
 if (Test-FoundationHasPersonalContent $Workspace) {
     Ok "Foundation already has personal content — skipping migration (idempotent)."
-} elseif ($Cockpit -eq $Workspace) {
-    Info "Cockpit path equals Foundation path — skipping."
-} elseif (Test-IsCockpitWorkspace $Cockpit) {
-    Info "Cockpit-style workspace detected at $Cockpit"
-    Info "Migration will: 1) back up Cockpit  2) copy skills/agents/projects/memory/.env/MCP/settings"
-    if (Ask "Run migration now?") {
-        $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
-        if (Test-Path $MigrateScript) {
-            # Use the SAME PowerShell engine that's running this script. Avoids
-            # the "pwsh not found" trap when the user is on Windows PowerShell
-            # 5.1 (default Windows) and we don't ship PS 7 as a prerequisite.
-            $psExe = (Get-Process -Id $PID).Path
-            & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $Cockpit -Foundation $Workspace
-            if ($LASTEXITCODE -ne 0) {
-                Warn "Migration script returned non-zero — review output above. Cockpit and backup are untouched."
+} else {
+    $discovered = Find-ExistingWorkspace -Foundation $Workspace -ExplicitCockpit $Cockpit
+    if ($discovered) {
+        Info "Existing Claude Code workspace detected at: $discovered"
+        Info "Migration will: 1) back up source  2) copy skills/agents/projects/memory/.env/MCP/settings"
+        if (Ask "Run migration now?") {
+            $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
+            if (Test-Path $MigrateScript) {
+                $psExe = (Get-Process -Id $PID).Path
+                & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $discovered -Foundation $Workspace
+                if ($LASTEXITCODE -ne 0) {
+                    Warn "Migration script returned non-zero — review output above. Source and backup are untouched."
+                }
+            } else {
+                Warn "Migration script not found: $MigrateScript"
             }
         } else {
-            Warn "Migration script not found: $MigrateScript"
+            Info "Skipped. Run later with: powershell -File $Workspace\installer\migrate-cockpit.ps1 -Cockpit `"$discovered`""
         }
     } else {
-        Info "Skipped. Run later with: powershell -File $Workspace\installer\migrate-cockpit.ps1"
+        Info "No existing Claude Code workspace found in standard locations."
+        Info "Searched: `$HOME\AI-OS,"
+        Info "          `$HOME\(Documents|Dokumente|Desktop|Schreibtisch|Downloads)\Claude Code,"
+        Info "          `$HOME\OneDrive*\(same five folders)\Claude Code"
+        if (-not $Yes) {
+            $customPath = Read-Host "  → If you have one at a different path, enter it now (or press Enter to skip)"
+            if ($customPath -and $customPath -ne $Workspace) {
+                if (Test-HasMigratableContent $customPath) {
+                    $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
+                    $psExe = (Get-Process -Id $PID).Path
+                    & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $customPath -Foundation $Workspace
+                    if ($LASTEXITCODE -ne 0) {
+                        Warn "Migration script returned non-zero."
+                    }
+                } else {
+                    Warn "No migratable content found at: $customPath (skills/agents empty or missing)"
+                }
+            }
+        }
     }
-} else {
-    Info "No Cockpit-style workspace at $Cockpit — nothing to migrate."
 }
 
 Write-Host @"

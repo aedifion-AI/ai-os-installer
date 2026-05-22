@@ -3,6 +3,7 @@
 #
 # Canonical location: aedifion-AI/aedifion-AI-OS/installer/install.sh (private)
 # Public mirror:      aedifion-AI/ai-os-installer (sync target — kept in lockstep)
+# After editing this file, follow installer/MIRROR-SYNC.md to push to the mirror.
 #
 # Distribution paths:
 #   1. Fresh laptop (recommended): one-liner against the public mirror —
@@ -247,8 +248,8 @@ info "opening VS Code at $WORKSPACE ..."
 code "$WORKSPACE" 2>/dev/null \
   || warn "'code' command failed. Open VS Code → File → Open Folder → $WORKSPACE"
 
-# ─── 8. Cockpit auto-migration ───────────────────────────
-step "8/8  Cockpit auto-migration"
+# ─── 8. Cockpit / existing-workspace auto-migration ──────
+step "8/8  Migration from any existing Claude Code workspace"
 
 # Idempotency: if Foundation already has any personal skills/agents migrated,
 # skip — don't re-run migration over existing personal content.
@@ -260,38 +261,98 @@ foundation_has_personal_content() {
   [ "${#matches[@]}" -gt 0 ]
 }
 
-# Cockpit detection: directory exists AND at least 2 of 4 Cockpit-style markers.
-is_cockpit_workspace() {
+# A workspace is migratable if it has any personal CC content:
+#   - Old aedifion-Cockpit layout: 2+ of {CLAUDE.md, 01-memory/, 02-projects/, 03-skills/}
+#   - OR generic CC workspace: non-empty .claude/skills/ or .claude/agents/
+has_migratable_content() {
   local p="$1"
   [ -d "$p" ] || return 1
+  # Cockpit-style: aedifion-spezifische Marker
   local signals=0
   [ -f "$p/CLAUDE.md" ]   && signals=$((signals+1))
   [ -d "$p/01-memory" ]   && signals=$((signals+1))
   [ -d "$p/02-projects" ] && signals=$((signals+1))
   [ -d "$p/03-skills" ]   && signals=$((signals+1))
-  [ "$signals" -ge 2 ]
+  if [ "$signals" -ge 2 ]; then return 0; fi
+  # Generic CC workspace: .claude/skills oder .claude/agents nicht leer
+  if [ -d "$p/.claude/skills" ] && [ -n "$(ls -A "$p/.claude/skills" 2>/dev/null)" ]; then
+    return 0
+  fi
+  if [ -d "$p/.claude/agents" ] && [ -n "$(ls -A "$p/.claude/agents" 2>/dev/null)" ]; then
+    return 0
+  fi
+  return 1
+}
+
+# Discover an existing CC-workspace in standard locations. Echos the first hit,
+# returns 0 if found. Considers:
+#   - legacy aedifion-Cockpit at ~/AI-OS
+#   - Documents/Dokumente, Desktop/Schreibtisch, Downloads (DE + EN locale)
+#   - all of the above mirrored under OneDrive* (Windows + macOS CloudStorage)
+discover_workspace() {
+  local candidates=(
+    "$COCKPIT"
+    "$HOME/AI-OS"
+  )
+  local folders=("Documents" "Dokumente" "Desktop" "Schreibtisch" "Downloads")
+  for f in "${folders[@]}"; do
+    candidates+=("$HOME/$f/Claude Code")
+  done
+  # OneDrive variants — globs may match multiple paths (e.g. "OneDrive - aedifion GmbH").
+  # nullglob ensures unmatched globs disappear instead of being treated as literals.
+  shopt -s nullglob 2>/dev/null || true
+  for base in "$HOME"/OneDrive* "$HOME"/Library/CloudStorage/OneDrive*; do
+    [ -d "$base" ] || continue
+    for f in "${folders[@]}"; do
+      candidates+=("$base/$f/Claude Code")
+    done
+  done
+  for path in "${candidates[@]}"; do
+    [ -z "$path" ] && continue
+    [ "$path" = "$WORKSPACE" ] && continue
+    if has_migratable_content "$path"; then
+      echo "$path"
+      return 0
+    fi
+  done
+  return 1
 }
 
 if foundation_has_personal_content "$WORKSPACE"; then
   ok "Foundation already has personal content — skipping migration (idempotent)."
-elif [ "$COCKPIT" = "$WORKSPACE" ]; then
-  info "Cockpit path equals Foundation path — skipping."
-elif is_cockpit_workspace "$COCKPIT"; then
-  info "Cockpit-style workspace detected at $COCKPIT"
-  info "Migration will: 1) back up Cockpit  2) copy skills/agents/projects/memory/.env/MCP/settings"
+elif DISCOVERED=$(discover_workspace); then
+  info "Existing Claude Code workspace detected at: $DISCOVERED"
+  info "Migration will: 1) back up source  2) copy skills/agents/projects/memory/.env/MCP/settings"
   if ask "Run migration now?"; then
     MIGRATE_SCRIPT="$WORKSPACE/installer/migrate-cockpit.sh"
     if [ -x "$MIGRATE_SCRIPT" ]; then
-      bash "$MIGRATE_SCRIPT" --yes --cockpit "$COCKPIT" --foundation "$WORKSPACE" \
-        || warn "Migration script returned non-zero — review output above. Cockpit and backup are untouched."
+      bash "$MIGRATE_SCRIPT" --yes --cockpit "$DISCOVERED" --foundation "$WORKSPACE" \
+        || warn "Migration script returned non-zero — review output above. Source workspace and backup are untouched."
     else
       warn "Migration script not found or not executable: $MIGRATE_SCRIPT"
     fi
   else
-    info "Skipped. Run later with: bash $WORKSPACE/installer/migrate-cockpit.sh"
+    info "Skipped. Run later with: bash $WORKSPACE/installer/migrate-cockpit.sh --cockpit \"$DISCOVERED\""
   fi
 else
-  info "No Cockpit-style workspace at $COCKPIT — nothing to migrate."
+  info "No existing Claude Code workspace found in standard locations."
+  info "Searched: \$HOME/AI-OS,"
+  info "          \$HOME/(Documents|Dokumente|Desktop|Schreibtisch|Downloads)/Claude Code,"
+  info "          \$HOME/OneDrive*/(same five folders)/Claude Code,"
+  info "          \$HOME/Library/CloudStorage/OneDrive*/(same five folders)/Claude Code"
+  if [ "$YES" != "1" ]; then
+    echo "  → If you have one at a different path, enter it now (or press Enter to skip):"
+    read -r CUSTOM_PATH
+    if [ -n "$CUSTOM_PATH" ] && [ "$CUSTOM_PATH" != "$WORKSPACE" ]; then
+      if has_migratable_content "$CUSTOM_PATH"; then
+        MIGRATE_SCRIPT="$WORKSPACE/installer/migrate-cockpit.sh"
+        bash "$MIGRATE_SCRIPT" --yes --cockpit "$CUSTOM_PATH" --foundation "$WORKSPACE" \
+          || warn "Migration script returned non-zero."
+      else
+        warn "No migratable content found at: $CUSTOM_PATH (skills/agents empty or missing)"
+      fi
+    fi
+  fi
 fi
 
 cat <<EOF
