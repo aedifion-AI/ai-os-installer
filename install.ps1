@@ -112,61 +112,120 @@ function Refresh-Path {
 
 # Brew_install equivalent for winget.
 #
-# Returns nothing; aborts the whole installer when a critical package install
-# fails (a half-installed toolchain just produces confusing errors three
-# steps later). winget exit codes:
-#   0                 → success (installed or already present)
-#   -1978335212       → "no installed package matching query" (we use it to
-#                       distinguish 'not installed' from a real error on `list`)
-#   anything else     → real error; abort.
+# Design: the question is "is this TOOL available?", not "is this winget
+# PACKAGE installed?". Many devs already have Git from git-scm.com,
+# Python from python.org, gh from a GitHub-Desktop bundle, etc. — winget
+# doesn't see those. Asking the wrong question makes winget try a second
+# install that collides with the existing one (Inno Setup exit code 1).
+#
+# Flow:
+#   1. If the tool's CLI is already on PATH → done, skip winget entirely.
+#   2. Else: check whether winget has it registered → done if yes.
+#   3. Else: try `winget install`.
+#   4. After install (success OR failure): re-check the tool on PATH.
+#      If it's there now, we're fine — even if winget's exit code was odd.
+#   5. Only if the tool is STILL missing → hard abort with manual-install
+#      instructions for the specific package.
 function Winget-Install {
-    param([string]$pkg)
-    # Probe with `list`. Exit code 0 = installed; non-zero = not installed
-    # (or winget failure — either way we try to install). We discard the
-    # output, but keep stderr visible in case winget itself fails loudly.
-    winget list --id $pkg --exact --accept-source-agreements 2>&1 | Out-Null
-    $listExit = $LASTEXITCODE
-    if ($listExit -eq 0) {
-        Ok "$pkg already installed"
+    param(
+        [Parameter(Mandatory=$true)][string]$pkg,
+        [string]$tool = ""  # CLI command to probe for (git, python, gh, code)
+    )
+
+    # Step 1: tool-first check
+    if ($tool -and (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        Ok "$tool already available on PATH — skipping winget install of $pkg"
         return
     }
+
+    # Step 2: winget registry check (catches GUI-only apps without a CLI)
+    winget list --id $pkg --exact --accept-source-agreements 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Ok "$pkg already installed (winget knows it)"
+        Refresh-Path
+        return
+    }
+
+    # Step 3: install. No --silent — users need to see download progress,
+    # otherwise the script looks frozen during large downloads.
     Info "installing $pkg ..."
-    # No --silent — users need to see download progress, otherwise the
-    # script looks frozen during large downloads (VS Code is ~100 MB).
     winget install --id $pkg --exact --accept-source-agreements --accept-package-agreements
     $installExit = $LASTEXITCODE
-    if ($installExit -ne 0) {
-        AbortMsg @"
+    Refresh-Path
+
+    # Step 4: self-heal. Did the tool actually land on PATH? If yes, the
+    # exit code doesn't matter — winget sometimes reports oddly when an
+    # installer chains sub-installers or when a reboot would be ideal.
+    if ($tool -and (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        if ($installExit -ne 0) {
+            Warn "winget reported exit $installExit, but $tool is now available — continuing."
+        } else {
+            Ok "$pkg installed"
+        }
+        return
+    }
+
+    # Step 5: actually broken. Help the user help themselves.
+    if ($installExit -eq 0) {
+        # winget says success but tool is missing — likely PATH not refreshed
+        # by the installer until a new shell. Warn rather than abort.
+        Warn "$pkg installed, but $tool is not yet on PATH."
+        Warn "Close this PowerShell window and re-run the installer (one-liner) in a fresh shell."
+        Warn "The next run will detect $tool and skip this step."
+        return
+    }
+
+    $manualUrl = switch ($pkg) {
+        "Git.Git"                    { "https://git-scm.com/download/win" }
+        "Python.Python.3.12"         { "https://www.python.org/downloads/windows/" }
+        "GitHub.cli"                 { "https://cli.github.com/" }
+        "Microsoft.VisualStudioCode" { "https://code.visualstudio.com/Download" }
+        default                      { $null }
+    }
+    $manualHint = if ($manualUrl) { @"
+
+
+Workaround — install $pkg manually, then re-run this installer:
+   1. Download from: $manualUrl
+   2. Run the installer with default settings.
+   3. Close this PowerShell window, open a new one.
+   4. Re-run the same one-liner. The installer is idempotent — it will
+      detect the manual install via '$tool' on PATH and continue from the
+      next step.
+"@ } else { "" }
+
+    AbortMsg @"
 winget install $pkg failed with exit code $installExit.
 
-Common causes:
-  • UAC "No" was clicked — re-run and allow the elevation prompt.
-  • No internet / corporate proxy blocking the MS Store CDN.
-  • Package id changed upstream — install manually:
-       winget search $pkg
-       winget install --id <id>
+The detailed installer log path was printed by winget a few lines above.
+Open it and read the last ~20 lines — the actual cause is in there.
 
-The installer has stopped. Nothing was committed. Re-run when ready.
+Common causes:
+  • A conflicting pre-existing install of $pkg (most common). Uninstall
+    the old version via Settings → Apps, or use the manual workaround.
+  • UAC "No" was clicked — re-run and allow the elevation prompt.
+  • Antivirus / Defender blocking the installer.
+  • No internet / corporate proxy blocking the MS Store CDN.$manualHint
+
+The installer has stopped. Nothing else was changed. Re-run when ready.
 "@
-    }
-    Refresh-Path
 }
 
 # ─── 1/8 git ──────────────────────────────────────────────
 Step 1 "git"
-Winget-Install "Git.Git"
+Winget-Install -pkg "Git.Git" -tool "git"
 
 # ─── 2/8 python3 ──────────────────────────────────────────
 Step 2 "python3"
-Winget-Install "Python.Python.3.12"
+Winget-Install -pkg "Python.Python.3.12" -tool "python"
 
 # ─── 3/8 gh (GitHub CLI) ──────────────────────────────────
 Step 3 "GitHub CLI (gh)"
-Winget-Install "GitHub.cli"
+Winget-Install -pkg "GitHub.cli" -tool "gh"
 
 # ─── 4/8 VS Code ──────────────────────────────────────────
 Step 4 "VS Code"
-Winget-Install "Microsoft.VisualStudioCode"
+Winget-Install -pkg "Microsoft.VisualStudioCode" -tool "code"
 
 # ─── 5/8 Claude Code extension ────────────────────────────
 Step 5 "Claude Code extension"
