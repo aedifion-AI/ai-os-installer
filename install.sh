@@ -148,17 +148,37 @@ fi
 
 # ─── 3. CLI tools ─────────────────────────────────────────
 step "3/8  CLI tools (git, python3, gh)"
+# brew_install <pkg> [optional]
+#   `optional` mode: a failing install warns and continues. Default is required:
+#   failure aborts with a clear "check brew doctor" hint instead of dying via
+#   set -e somewhere downstream.
 brew_install() {
   local pkg="$1"
+  local mode="${2:-required}"
   if brew list "$pkg" >/dev/null 2>&1; then
     ok "$pkg already installed"
+    return 0
+  fi
+  info "installing $pkg ..."
+  if brew install "$pkg"; then
+    ok "$pkg installed"
+  elif [ "$mode" = "optional" ]; then
+    warn "$pkg install failed (non-fatal). Continuing."
   else
-    info "installing $pkg ..."
-    brew install "$pkg"
+    abort "Failed to install $pkg via brew. Try 'brew doctor' and re-run."
   fi
 }
 brew_install git
-brew_install python@3.12
+# Python: skip brew install if any python3 >= 3.11 is already on PATH.
+# Macs often have pyenv/asdf-managed Python, or a different brew python@X.YY.
+# Forcing python@3.12 on top of that triggers brew link conflicts and a
+# silent script crash via set -e. The AI-OS only needs python3 >= 3.11.
+if command -v python3 >/dev/null 2>&1 \
+   && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)' 2>/dev/null; then
+  ok "python3 $(python3 --version 2>&1 | awk '{print $2}') already available — skipping brew install python@3.12"
+else
+  brew_install python@3.12
+fi
 brew_install gh
 
 # ─── 4. VS Code ──────────────────────────────────────────
@@ -207,7 +227,23 @@ if code --list-extensions 2>/dev/null | grep -q "anthropic.claude-code"; then
   ok "already installed"
 else
   info "installing Claude Code extension ..."
-  code --install-extension anthropic.claude-code
+  # Retry on intermittent Marketplace / network failure. Without retry, a
+  # single bad response kills the script via set -e even though the next
+  # attempt would have succeeded.
+  ext_ok=0
+  for attempt in 1 2 3; do
+    if code --install-extension anthropic.claude-code; then
+      ext_ok=1
+      break
+    fi
+    warn "attempt $attempt failed, retrying in 5s ..."
+    sleep 5
+  done
+  if [ "$ext_ok" != "1" ]; then
+    warn "Claude Code extension install failed after 3 attempts."
+    warn "Install manually in VS Code: ⇧⌘X → search 'Claude Code' → Install."
+    warn "The rest of the installer will continue; re-run later if needed."
+  fi
 fi
 
 # ─── 6. GitHub auth ──────────────────────────────────────
@@ -258,7 +294,27 @@ if [ -d "$WORKSPACE" ]; then
   fi
 else
   info "cloning $PRIVATE_REPO into $WORKSPACE ..."
-  gh repo clone "$PRIVATE_REPO" "$WORKSPACE" || abort "Clone failed."
+  if ! gh repo clone "$PRIVATE_REPO" "$WORKSPACE"; then
+    cat >&2 <<EOF
+
+✗ Clone failed.
+
+Most likely cause: your GitHub account is not a member of the
+'aedifion-AI' organisation. The AI-OS Hauptrepo is private.
+
+Fixes:
+  1. Ask Fred (fheyfelder@aedifion.com) to invite your GitHub account
+     to https://github.com/aedifion-AI
+  2. Accept the email invitation
+  3. Re-run this installer.
+
+Other possible causes:
+  - Logged into the wrong GitHub account: run 'gh auth status' to check
+  - Network / VPN blocks github.com
+
+EOF
+    exit 1
+  fi
 fi
 
 info "opening VS Code at $WORKSPACE ..."
