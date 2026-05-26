@@ -1,18 +1,18 @@
-# aedifion AI-OS — All-in-one installer (Windows PowerShell 5.1+, runs in pwsh too)
+﻿# aedifion AI-OS -- All-in-one installer (Windows PowerShell 5.1+, runs in pwsh too)
 #
 # Canonical location: aedifion-AI/aedifion-AI-OS/installer/install.ps1 (private)
-# Public mirror:      aedifion-AI/ai-os-installer (sync target — kept in lockstep)
+# Public mirror:      aedifion-AI/ai-os-installer (sync target -- kept in lockstep)
 # After editing this file, follow installer/MIRROR-SYNC.md to push to the mirror.
 #
 # Distribution paths:
-#   1. Fresh laptop (recommended): one-liner against the public mirror —
+#   1. Fresh laptop (recommended): one-liner against the public mirror --
 #        iex "& { $(irm https://raw.githubusercontent.com/aedifion-AI/ai-os-installer/main/install.ps1) }"
-#   2. Browser download from the Hauptrepo (org members only) —
+#   2. Browser download from the Hauptrepo (org members only) --
 #        https://github.com/aedifion-AI/aedifion-AI-OS/raw/main/installer/install.ps1
 #        then locally:  powershell -ExecutionPolicy Bypass -File ~/Downloads/install.ps1
 #
 # Access control: the Hauptrepo is private. Step 7 (`gh repo clone`) is the
-# auth gate — non-members hit `permission denied` and the script stops.
+# auth gate -- non-members hit `permission denied` and the script stops.
 #
 # This installer:
 #   1. Installs git via winget
@@ -76,7 +76,7 @@ Write-Host @'
 ═══════════════════════════════════════════════════════════
 
 This will set up the aedifion AI Operations System on your Windows PC.
-Expected time: 5–10 minutes.
+Expected time: 5-10 minutes.
 
 🔐 Windows will show UAC (User Account Control) elevated-permission prompts
    during winget installs. Click "Yes" to allow each install.
@@ -96,7 +96,7 @@ if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
 # interactively to accept the msstore/winget source terms. We pre-accept
 # them once here, otherwise the first `winget list` inside Winget-Install
 # stalls invisibly (stderr was redirected, stdout was buffered through
-# Out-String, so the user saw no prompt — looked like a hang at "1/8 git").
+# Out-String, so the user saw no prompt -- looked like a hang at "1/8 git").
 Write-Host ""
 Info "warming up winget (accepting source agreements) ..."
 winget source update --accept-source-agreements 2>&1 | Out-Null
@@ -114,7 +114,7 @@ function Refresh-Path {
 #
 # Design: the question is "is this TOOL available?", not "is this winget
 # PACKAGE installed?". Many devs already have Git from git-scm.com,
-# Python from python.org, gh from a GitHub-Desktop bundle, etc. — winget
+# Python from python.org, gh from a GitHub-Desktop bundle, etc. -- winget
 # doesn't see those. Asking the wrong question makes winget try a second
 # install that collides with the existing one (Inno Setup exit code 1).
 #
@@ -123,7 +123,7 @@ function Refresh-Path {
 #   2. Else: check whether winget has it registered → done if yes.
 #   3. Else: try `winget install`.
 #   4. After install (success OR failure): re-check the tool on PATH.
-#      If it's there now, we're fine — even if winget's exit code was odd.
+#      If it's there now, we're fine -- even if winget's exit code was odd.
 #   5. Only if the tool is STILL missing → hard abort with manual-install
 #      instructions for the specific package.
 function Winget-Install {
@@ -134,7 +134,7 @@ function Winget-Install {
 
     # Step 1: tool-first check
     if ($tool -and (Get-Command $tool -ErrorAction SilentlyContinue)) {
-        Ok "$tool already available on PATH — skipping winget install of $pkg"
+        Ok "$tool already available on PATH -- skipping winget install of $pkg"
         return
     }
 
@@ -146,7 +146,7 @@ function Winget-Install {
         return
     }
 
-    # Step 3: install. No --silent — users need to see download progress,
+    # Step 3: install. No --silent -- users need to see download progress,
     # otherwise the script looks frozen during large downloads.
     Info "installing $pkg ..."
     winget install --id $pkg --exact --accept-source-agreements --accept-package-agreements
@@ -154,11 +154,11 @@ function Winget-Install {
     Refresh-Path
 
     # Step 4: self-heal. Did the tool actually land on PATH? If yes, the
-    # exit code doesn't matter — winget sometimes reports oddly when an
+    # exit code doesn't matter -- winget sometimes reports oddly when an
     # installer chains sub-installers or when a reboot would be ideal.
     if ($tool -and (Get-Command $tool -ErrorAction SilentlyContinue)) {
         if ($installExit -ne 0) {
-            Warn "winget reported exit $installExit, but $tool is now available — continuing."
+            Warn "winget reported exit $installExit, but $tool is now available -- continuing."
         } else {
             Ok "$pkg installed"
         }
@@ -167,7 +167,7 @@ function Winget-Install {
 
     # Step 5: actually broken. Help the user help themselves.
     if ($installExit -eq 0) {
-        # winget says success but tool is missing — likely PATH not refreshed
+        # winget says success but tool is missing -- likely PATH not refreshed
         # by the installer until a new shell. Warn rather than abort.
         Warn "$pkg installed, but $tool is not yet on PATH."
         Warn "Close this PowerShell window and re-run the installer (one-liner) in a fresh shell."
@@ -185,11 +185,11 @@ function Winget-Install {
     $manualHint = if ($manualUrl) { @"
 
 
-Workaround — install $pkg manually, then re-run this installer:
+Workaround -- install $pkg manually, then re-run this installer:
    1. Download from: $manualUrl
    2. Run the installer with default settings.
    3. Close this PowerShell window, open a new one.
-   4. Re-run the same one-liner. The installer is idempotent — it will
+   4. Re-run the same one-liner. The installer is idempotent -- it will
       detect the manual install via '$tool' on PATH and continue from the
       next step.
 "@ } else { "" }
@@ -198,12 +198,12 @@ Workaround — install $pkg manually, then re-run this installer:
 winget install $pkg failed with exit code $installExit.
 
 The detailed installer log path was printed by winget a few lines above.
-Open it and read the last ~20 lines — the actual cause is in there.
+Open it and read the last ~20 lines -- the actual cause is in there.
 
 Common causes:
   • A conflicting pre-existing install of $pkg (most common). Uninstall
     the old version via Settings → Apps, or use the manual workaround.
-  • UAC "No" was clicked — re-run and allow the elevation prompt.
+  • UAC "No" was clicked -- re-run and allow the elevation prompt.
   • Antivirus / Defender blocking the installer.
   • No internet / corporate proxy blocking the MS Store CDN.$manualHint
 
@@ -230,7 +230,7 @@ Winget-Install -pkg "Microsoft.VisualStudioCode" -tool "code"
 # ─── 5/8 Claude Code extension ────────────────────────────
 Step 5 "Claude Code extension"
 if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
-    Warn "'code' CLI not on PATH yet — VS Code may need a system restart to register."
+    Warn "'code' CLI not on PATH yet -- VS Code may need a system restart to register."
     Warn "Skipping extension install. After restarting, run inside VS Code:"
     Warn "    code --install-extension anthropic.claude-code"
 } else {
@@ -242,7 +242,7 @@ if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
         Info "installing Claude Code extension ..."
         & code --install-extension anthropic.claude-code
         if ($LASTEXITCODE -ne 0) {
-            Warn "Extension install returned $LASTEXITCODE — install it from inside VS Code if needed."
+            Warn "Extension install returned $LASTEXITCODE -- install it from inside VS Code if needed."
         }
     }
 }
@@ -282,7 +282,7 @@ if ($Workspace -notmatch '^[\p{L}\p{N}:\\/ _.~-]+$') {
 }
 
 if (Test-Path $Workspace) {
-    Warn "$Workspace already exists — skipping clone."
+    Warn "$Workspace already exists -- skipping clone."
     Info "If you want a clean install, remove or rename the existing folder, then re-run."
 }
 else {
@@ -313,7 +313,7 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
         Warn "'code' command failed. Open VS Code → File → Open Folder → $Workspace"
     }
 } else {
-    Warn "'code' CLI not on PATH yet — VS Code may need a system restart to register."
+    Warn "'code' CLI not on PATH yet -- VS Code may need a system restart to register."
     Warn "Open VS Code manually → File → Open Folder → $Workspace"
 }
 
@@ -396,7 +396,7 @@ function Find-ExistingWorkspace {
 }
 
 if (Test-FoundationHasPersonalContent $Workspace) {
-    Ok "Foundation already has personal content — skipping migration (idempotent)."
+    Ok "Foundation already has personal content -- skipping migration (idempotent)."
 } else {
     $discovered = Find-ExistingWorkspace -Foundation $Workspace -ExplicitCockpit $Cockpit
     if ($discovered) {
@@ -408,7 +408,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
                 $psExe = (Get-Process -Id $PID).Path
                 & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $discovered -Foundation $Workspace
                 if ($LASTEXITCODE -ne 0) {
-                    Warn "Migration script returned non-zero — review output above. Source and backup are untouched."
+                    Warn "Migration script returned non-zero -- review output above. Source and backup are untouched."
                 }
             } else {
                 Warn "Migration script not found: $MigrateScript"
@@ -444,7 +444,7 @@ Write-Host @"
 ═══════════════════════════════════════════════════════════
   ✓ Installation complete.
 
-  Next step — inside VS Code:
+  Next step -- inside VS Code:
     1. Open the Claude Code sidebar (Anthropic icon on the left)
     2. Type:  /onboard
 
