@@ -237,8 +237,25 @@ echo "$WORKSPACE" | grep -qE '^[A-Za-z0-9/_.~-]+$' \
   || abort "Path contains spaces or special characters: $WORKSPACE"
 
 if [ -d "$WORKSPACE" ]; then
-  warn "$WORKSPACE already exists — skipping clone."
-  info "If you want a clean install, remove or rename the existing folder, then re-run."
+  # Workspace exists -- pull latest if it's a git repo. Without this, a user
+  # who re-runs the installer to pick up a bug-fix gets the OLD files because
+  # their clone is frozen at the moment of first install.
+  if [ -d "$WORKSPACE/.git" ]; then
+    info "$WORKSPACE already exists -- pulling latest from origin/main ..."
+    if [ -n "$(cd "$WORKSPACE" && git status --porcelain)" ]; then
+      warn "Local changes detected in $WORKSPACE -- skipping pull to preserve your work."
+      warn "If you want the latest version: commit/stash your changes, then git pull origin main"
+    else
+      if ( cd "$WORKSPACE" && git pull --ff-only origin main >/dev/null 2>&1 ); then
+        ok "Workspace updated to origin/main"
+      else
+        warn "git pull failed (workspace may be on a non-main branch). Continuing with current state."
+      fi
+    fi
+  else
+    warn "$WORKSPACE exists but is not a git repository -- skipping clone."
+    info "If you want a clean install, remove or rename the existing folder, then re-run."
+  fi
 else
   info "cloning $PRIVATE_REPO into $WORKSPACE ..."
   gh repo clone "$PRIVATE_REPO" "$WORKSPACE" || abort "Clone failed."

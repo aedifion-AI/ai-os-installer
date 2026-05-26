@@ -282,8 +282,32 @@ if ($Workspace -notmatch '^[\p{L}\p{N}:\\/ _.~-]+$') {
 }
 
 if (Test-Path $Workspace) {
-    Warn "$Workspace already exists -- skipping clone."
-    Info "If you want a clean install, remove or rename the existing folder, then re-run."
+    # Workspace exists -- pull latest if it's a git repo. Without this, a user
+    # who re-runs the installer to pick up a bug-fix gets the OLD files because
+    # their clone is frozen at the moment of first install.
+    if (Test-Path (Join-Path $Workspace ".git")) {
+        Info "$Workspace already exists -- pulling latest from origin/main ..."
+        Push-Location $Workspace
+        try {
+            $localChanges = & git status --porcelain 2>&1
+            if ($localChanges) {
+                Warn "Local changes detected in $Workspace -- skipping pull to preserve your work."
+                Warn "If you want the latest version, commit/stash your changes and run: git pull origin main"
+            } else {
+                & git pull --ff-only origin main 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Ok "Workspace updated to origin/main"
+                } else {
+                    Warn "git pull failed (workspace may be on a non-main branch). Continuing with current state."
+                }
+            }
+        } finally {
+            Pop-Location
+        }
+    } else {
+        Warn "$Workspace exists but is not a git repository -- skipping clone."
+        Info "If you want a clean install, remove or rename the existing folder, then re-run."
+    }
 }
 else {
     Info "cloning $PrivateRepo into $Workspace ..."
