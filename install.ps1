@@ -53,6 +53,22 @@ function Ask([string]$msg) {
     return ($ans -eq "" -or $ans -match "^[Yy]")
 }
 
+# Run a native command with $ErrorActionPreference relaxed to 'Continue' for
+# the duration of the call. Windows PowerShell 5.1 otherwise promotes any
+# stderr write from a native tool (git's "From https://...", gh's clone
+# progress, etc.) to a terminating RemoteException -- even harmless status
+# lines kill the script. $LASTEXITCODE is preserved so the caller can check
+# success the normal way. See PowerShell issue #3996 and posh-git PR #370.
+# Callers that want merged stdout+stderr should add `2>&1` inside the block,
+# e.g. `$out = Invoke-Native { git pull 2>&1 }`.
+function Invoke-Native {
+    param([scriptblock]$Block)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Block }
+    finally { $ErrorActionPreference = $prev }
+}
+
 # ─── 0. OS check ─────────────────────────────────────────
 # $IsWindows is an automatic variable in PowerShell 7+ (Core). In Windows
 # PowerShell 5.1 it does not exist (= $null), so we only treat the script as
@@ -99,7 +115,7 @@ if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
 # Out-String, so the user saw no prompt -- looked like a hang at "1/8 git").
 Write-Host ""
 Info "warming up winget (accepting source agreements) ..."
-winget source update --accept-source-agreements 2>&1 | Out-Null
+Invoke-Native { winget source update --accept-source-agreements 2>&1 } | Out-Null
 
 function Refresh-Path {
     # winget installs put new tools into the Machine/User PATH, but the running
@@ -234,13 +250,13 @@ if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
     Warn "Skipping extension install. After restarting, run inside VS Code:"
     Warn "    code --install-extension anthropic.claude-code"
 } else {
-    $exts = & code --list-extensions 2>&1
+    $exts = Invoke-Native { code --list-extensions 2>&1 }
     if ($exts -match "anthropic.claude-code") {
         Ok "already installed"
     }
     else {
         Info "installing Claude Code extension ..."
-        & code --install-extension anthropic.claude-code
+        Invoke-Native { code --install-extension anthropic.claude-code }
         if ($LASTEXITCODE -ne 0) {
             Warn "Extension install returned $LASTEXITCODE -- install it from inside VS Code if needed."
         }
@@ -252,7 +268,7 @@ Step 6 "GitHub login"
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     AbortMsg "'gh' CLI not on PATH. Close this PowerShell window and re-run the installer (Windows needs a fresh shell after gh install)."
 }
-$ghStatus = & gh auth status 2>&1
+$ghStatus = Invoke-Native { gh auth status 2>&1 }
 if ($LASTEXITCODE -eq 0) {
     Ok "already logged in to GitHub"
 }
@@ -261,7 +277,7 @@ else {
     Write-Host "  A browser window will open for GitHub login."
     Write-Host "  Use the GitHub account that has access to the aedifion-AI organisation."
     Write-Host ""
-    & gh auth login --hostname github.com --git-protocol https --web
+    Invoke-Native { gh auth login --hostname github.com --git-protocol https --web }
     if ($LASTEXITCODE -ne 0) {
         AbortMsg "GitHub login did not complete. Re-run the installer once logged in via 'gh auth login'."
     }
@@ -289,17 +305,12 @@ if (Test-Path $Workspace) {
         Info "$Workspace already exists -- pulling latest from origin/main ..."
         Push-Location $Workspace
         try {
-            $localChanges = & git status --porcelain 2>&1
+            $localChanges = Invoke-Native { git status --porcelain 2>&1 }
             if ($localChanges) {
                 Warn "Local changes detected in $Workspace -- skipping pull to preserve your work."
                 Warn "If you want the latest version, commit/stash your changes and run: git pull origin main"
             } else {
-                # git writes status lines ("From https://...", "Already up to date.")
-                # to stderr by convention. Under $ErrorActionPreference = "Stop",
-                # PS 5.1 turns those into a terminating NativeCommandError before
-                # `2>&1 | Out-Null` can swallow them. Capture into a variable
-                # instead -- merged output dies in the assignment.
-                $pullOutput = & git pull --ff-only origin main 2>&1
+                $pullOutput = Invoke-Native { git pull --ff-only origin main 2>&1 }
                 if ($LASTEXITCODE -eq 0) {
                     Ok "Workspace updated to origin/main"
                 } else {
@@ -317,10 +328,7 @@ if (Test-Path $Workspace) {
 }
 else {
     Info "cloning $PrivateRepo into $Workspace ..."
-    # gh CLI emits progress on stderr; under EAP=Stop that would terminate the
-    # script before we can read $LASTEXITCODE. Capture into a variable to
-    # absorb the merged stream.
-    $cloneOutput = & gh repo clone $PrivateRepo $Workspace 2>&1
+    $cloneOutput = Invoke-Native { gh repo clone $PrivateRepo $Workspace 2>&1 }
     if ($LASTEXITCODE -ne 0) {
         Write-Host $cloneOutput
         AbortMsg @"
@@ -342,7 +350,7 @@ re-run this installer.
 
 if (Get-Command code -ErrorAction SilentlyContinue) {
     Info "opening VS Code at $Workspace ..."
-    & code $Workspace
+    Invoke-Native { code $Workspace }
     if ($LASTEXITCODE -ne 0) {
         Warn "'code' command failed. Open VS Code → File → Open Folder → $Workspace"
     }
@@ -440,7 +448,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
             $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
             if (Test-Path $MigrateScript) {
                 $psExe = (Get-Process -Id $PID).Path
-                & $psExe -NoProfile -ExecutionPolicy Bypass -File $MigrateScript -Yes -Cockpit $discovered -Foundation $Workspace
+                Invoke-Native { & $psExe -NoProfile -ExecutionPolicy Bypass -File $MigrateScript -Yes -Cockpit $discovered -Foundation $Workspace }
                 if ($LASTEXITCODE -ne 0) {
                     Warn "Migration script returned non-zero -- review output above. Source and backup are untouched."
                 }
@@ -461,7 +469,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
                 if (Test-HasMigratableContent $customPath) {
                     $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
                     $psExe = (Get-Process -Id $PID).Path
-                    & $psExe -NoProfile -ExecutionPolicy Bypass -File $MigrateScript -Yes -Cockpit $customPath -Foundation $Workspace
+                    Invoke-Native { & $psExe -NoProfile -ExecutionPolicy Bypass -File $MigrateScript -Yes -Cockpit $customPath -Foundation $Workspace }
                     if ($LASTEXITCODE -ne 0) {
                         Warn "Migration script returned non-zero."
                     }
