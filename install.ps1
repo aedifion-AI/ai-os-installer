@@ -294,11 +294,17 @@ if (Test-Path $Workspace) {
                 Warn "Local changes detected in $Workspace -- skipping pull to preserve your work."
                 Warn "If you want the latest version, commit/stash your changes and run: git pull origin main"
             } else {
-                & git pull --ff-only origin main 2>&1 | Out-Null
+                # git writes status lines ("From https://...", "Already up to date.")
+                # to stderr by convention. Under $ErrorActionPreference = "Stop",
+                # PS 5.1 turns those into a terminating NativeCommandError before
+                # `2>&1 | Out-Null` can swallow them. Capture into a variable
+                # instead -- merged output dies in the assignment.
+                $pullOutput = & git pull --ff-only origin main 2>&1
                 if ($LASTEXITCODE -eq 0) {
                     Ok "Workspace updated to origin/main"
                 } else {
                     Warn "git pull failed (workspace may be on a non-main branch). Continuing with current state."
+                    Warn "  $pullOutput"
                 }
             }
         } finally {
@@ -311,8 +317,12 @@ if (Test-Path $Workspace) {
 }
 else {
     Info "cloning $PrivateRepo into $Workspace ..."
-    & gh repo clone $PrivateRepo $Workspace
+    # gh CLI emits progress on stderr; under EAP=Stop that would terminate the
+    # script before we can read $LASTEXITCODE. Capture into a variable to
+    # absorb the merged stream.
+    $cloneOutput = & gh repo clone $PrivateRepo $Workspace 2>&1
     if ($LASTEXITCODE -ne 0) {
+        Write-Host $cloneOutput
         AbortMsg @"
 Clone of $PrivateRepo failed.
 
@@ -430,7 +440,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
             $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
             if (Test-Path $MigrateScript) {
                 $psExe = (Get-Process -Id $PID).Path
-                & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $discovered -Foundation $Workspace
+                & $psExe -NoProfile -ExecutionPolicy Bypass -File $MigrateScript -Yes -Cockpit $discovered -Foundation $Workspace
                 if ($LASTEXITCODE -ne 0) {
                     Warn "Migration script returned non-zero -- review output above. Source and backup are untouched."
                 }
@@ -438,7 +448,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
                 Warn "Migration script not found: $MigrateScript"
             }
         } else {
-            Info "Skipped. Run later with: powershell -File $Workspace\installer\migrate-cockpit.ps1 -Cockpit `"$discovered`""
+            Info "Skipped. Run later with: powershell -ExecutionPolicy Bypass -File $Workspace\installer\migrate-cockpit.ps1 -Cockpit `"$discovered`""
         }
     } else {
         Info "No existing Claude Code workspace found in standard locations."
@@ -451,7 +461,7 @@ if (Test-FoundationHasPersonalContent $Workspace) {
                 if (Test-HasMigratableContent $customPath) {
                     $MigrateScript = Join-Path $Workspace "installer\migrate-cockpit.ps1"
                     $psExe = (Get-Process -Id $PID).Path
-                    & $psExe -NoProfile -File $MigrateScript -Yes -Cockpit $customPath -Foundation $Workspace
+                    & $psExe -NoProfile -ExecutionPolicy Bypass -File $MigrateScript -Yes -Cockpit $customPath -Foundation $Workspace
                     if ($LASTEXITCODE -ne 0) {
                         Warn "Migration script returned non-zero."
                     }
