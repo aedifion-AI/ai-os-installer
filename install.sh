@@ -104,6 +104,13 @@ Steps:
    macOS does NOT show characters or asterisks while you type — that is normal.
    Type your Mac password blindly and press Enter.
 
+⚠ SECURITY CHECK before you type any password:
+   You are running a script piped from the internet. Only continue if you
+   started it from the OFFICIAL one-liner in the aedifion AI-OS README (the
+   github.com/aedifion-AI/ai-os-installer page) or got it directly from IT.
+   If someone sent you this link in a chat or email, STOP and verify with IT
+   first. Never type your Mac password into a script you cannot vouch for.
+
 EOF
 
 if [ "$YES" != "1" ]; then
