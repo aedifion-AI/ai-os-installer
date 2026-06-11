@@ -18,7 +18,7 @@
 # This installer:
 #   1. Installs Xcode Command Line Tools (macOS only)
 #   2. Installs Homebrew (macOS only)
-#   3. Installs git, python3, gh (GitHub CLI) via brew
+#   3. Installs git, python3, gh (GitHub CLI), node (Node.js) via brew
 #   4. Installs VS Code via brew cask
 #   5. Installs the Claude Code extension
 #   6. Logs you into GitHub (browser opens)
@@ -93,7 +93,7 @@ Expected time: 5–10 minutes.
 Steps:
   1. Xcode Command Line Tools (if missing)
   2. Homebrew (if missing)
-  3. CLI tools: git, python3, GitHub CLI (gh)
+  3. CLI tools: git, python3, GitHub CLI (gh), Node.js
   4. VS Code
   5. Claude Code extension
   6. GitHub login (browser opens)
@@ -154,7 +154,7 @@ elif [ -x /usr/local/bin/brew ]; then eval "$(/usr/local/bin/brew shellenv)"
 fi
 
 # ─── 3. CLI tools ─────────────────────────────────────────
-step "3/8  CLI tools (git, python3, gh)"
+step "3/8  CLI tools (git, python3, gh, node)"
 # brew_install <pkg> [optional]
 #   `optional` mode: a failing install warns and continues. Default is required:
 #   failure aborts with a clear "check brew doctor" hint instead of dying via
@@ -187,6 +187,15 @@ else
   brew_install python@3.12
 fi
 brew_install gh
+# Node.js: skip brew install if any node >= 18 is already on PATH.
+# Many Macs have nvm/volta/fnm-managed Node; forcing brew node on top of
+# that triggers link conflicts, same disease as the python case above.
+if command -v node >/dev/null 2>&1 \
+   && node -e 'process.exit(parseInt(process.versions.node, 10) >= 18 ? 0 : 1)' 2>/dev/null; then
+  ok "node $(node --version 2>/dev/null) already available — skipping brew install node"
+else
+  brew_install node
+fi
 
 # ─── 4. VS Code ──────────────────────────────────────────
 step "4/8  VS Code"

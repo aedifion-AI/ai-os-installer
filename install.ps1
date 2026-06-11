@@ -11,18 +11,19 @@
 #        https://github.com/aedifion-AI/aedifion-AI-OS/raw/main/installer/install.ps1
 #        then locally:  powershell -ExecutionPolicy Bypass -File ~/Downloads/install.ps1
 #
-# Access control: the Hauptrepo is private. Step 7 (`gh repo clone`) is the
+# Access control: the Hauptrepo is private. Step 8 (`gh repo clone`) is the
 # auth gate -- non-members hit `permission denied` and the script stops.
 #
 # This installer:
 #   1. Installs git via winget
 #   2. Installs python3 via winget
-#   3. Installs GitHub CLI (gh) via winget
-#   4. Installs VS Code via winget
-#   5. Installs the Claude Code extension
-#   6. Logs you into GitHub (browser opens)
-#   7. Clones the private aedifion-AI-OS repo and opens VS Code
-#   8. If a Cockpit-style workspace exists at $HOME/AI-OS (or $env:COCKPIT_PATH),
+#   3. Installs Node.js via winget
+#   4. Installs GitHub CLI (gh) via winget
+#   5. Installs VS Code via winget
+#   6. Installs the Claude Code extension
+#   7. Logs you into GitHub (browser opens)
+#   8. Clones the private aedifion-AI-OS repo and opens VS Code
+#   9. If a Cockpit-style workspace exists at $HOME/AI-OS (or $env:COCKPIT_PATH),
 #      backs it up and migrates personal skills, agents, projects, memory,
 #      .env, MCP, settings into the new Foundation workspace.
 #
@@ -42,7 +43,7 @@ $PrivateRepo = "aedifion-AI/aedifion-AI-OS"
 $CockpitDefault = Join-Path $HOME "AI-OS"
 $Cockpit = if ($env:COCKPIT_PATH) { $env:COCKPIT_PATH } else { $CockpitDefault }
 
-function Step([int]$n, [string]$msg) { Write-Host ""; Write-Host "▶ $n/8  $msg" }
+function Step([int]$n, [string]$msg) { Write-Host ""; Write-Host "▶ $n/9  $msg" }
 function Ok([string]$msg) { Write-Host "  ✓ $msg" }
 function Info([string]$msg) { Write-Host "  → $msg" }
 function Warn([string]$msg) { Write-Host "  ⚠ $msg" }
@@ -112,7 +113,7 @@ if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
 # interactively to accept the msstore/winget source terms. We pre-accept
 # them once here, otherwise the first `winget list` inside Winget-Install
 # stalls invisibly (stderr was redirected, stdout was buffered through
-# Out-String, so the user saw no prompt -- looked like a hang at "1/8 git").
+# Out-String, so the user saw no prompt -- looked like a hang at "1/9 git").
 Write-Host ""
 Info "warming up winget (accepting source agreements) ..."
 Invoke-Native { winget source update --accept-source-agreements 2>&1 } | Out-Null
@@ -194,6 +195,7 @@ function Winget-Install {
     $manualUrl = switch ($pkg) {
         "Git.Git"                    { "https://git-scm.com/download/win" }
         "Python.Python.3.12"         { "https://www.python.org/downloads/windows/" }
+        "OpenJS.NodeJS.LTS"          { "https://nodejs.org/en/download" }
         "GitHub.cli"                 { "https://cli.github.com/" }
         "Microsoft.VisualStudioCode" { "https://code.visualstudio.com/Download" }
         default                      { $null }
@@ -227,24 +229,28 @@ The installer has stopped. Nothing else was changed. Re-run when ready.
 "@
 }
 
-# ─── 1/8 git ──────────────────────────────────────────────
+# ─── 1/9 git ──────────────────────────────────────────────
 Step 1 "git"
 Winget-Install -pkg "Git.Git" -tool "git"
 
-# ─── 2/8 python3 ──────────────────────────────────────────
+# ─── 2/9 python3 ──────────────────────────────────────────
 Step 2 "python3"
 Winget-Install -pkg "Python.Python.3.12" -tool "python"
 
-# ─── 3/8 gh (GitHub CLI) ──────────────────────────────────
-Step 3 "GitHub CLI (gh)"
+# ─── 3/9 Node.js ──────────────────────────────────────────
+Step 3 "Node.js"
+Winget-Install -pkg "OpenJS.NodeJS.LTS" -tool "node"
+
+# ─── 4/9 gh (GitHub CLI) ──────────────────────────────────
+Step 4 "GitHub CLI (gh)"
 Winget-Install -pkg "GitHub.cli" -tool "gh"
 
-# ─── 4/8 VS Code ──────────────────────────────────────────
-Step 4 "VS Code"
+# ─── 5/9 VS Code ──────────────────────────────────────────
+Step 5 "VS Code"
 Winget-Install -pkg "Microsoft.VisualStudioCode" -tool "code"
 
-# ─── 5/8 Claude Code extension ────────────────────────────
-Step 5 "Claude Code extension"
+# ─── 6/9 Claude Code extension ────────────────────────────
+Step 6 "Claude Code extension"
 if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
     Warn "'code' CLI not on PATH yet -- VS Code may need a system restart to register."
     Warn "Skipping extension install. After restarting, run inside VS Code:"
@@ -263,8 +269,8 @@ if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
     }
 }
 
-# ─── 6/8 GitHub auth ──────────────────────────────────────
-Step 6 "GitHub login"
+# ─── 7/9 GitHub auth ──────────────────────────────────────
+Step 7 "GitHub login"
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     AbortMsg "'gh' CLI not on PATH. Close this PowerShell window and re-run the installer (Windows needs a fresh shell after gh install)."
 }
@@ -283,8 +289,8 @@ else {
     }
 }
 
-# ─── 7/8 Clone + open VS Code ─────────────────────────────
-Step 7 "Workspace"
+# ─── 8/9 Clone + open VS Code ─────────────────────────────
+Step 8 "Workspace"
 
 if ([string]::IsNullOrWhiteSpace($Workspace)) {
     $Workspace = $WorkspaceDefault
@@ -359,8 +365,8 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
     Warn "Open VS Code manually → File → Open Folder → $Workspace"
 }
 
-# ─── 8/8 Migration from any existing CC workspace ────────
-Step 8 "Migration from any existing Claude Code workspace"
+# ─── 9/9 Migration from any existing CC workspace ────────
+Step 9 "Migration from any existing Claude Code workspace"
 
 function Test-FoundationHasPersonalContent {
     param([string]$Path)
